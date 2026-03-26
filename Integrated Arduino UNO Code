@@ -1,0 +1,122 @@
+#include <DHT.h>
+#include <SoftwareSerial.h>
+#include <PZEM004Tv30.h>
+
+// ---------- DHT22 ----------
+#define DHTPIN 2
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// ---------- MQ2 ----------
+#define MQ2_PIN A0
+
+// ---------- Ultrasonic ----------
+#define TRIG1 3
+#define ECHO1 4
+#define TRIG2 5
+#define ECHO2 6
+
+// ---------- Outputs ----------
+#define BUZZER 9
+#define GREEN_LED 10
+#define RED_LED 11
+
+// ---------- SoftwareSerial to ESP32 ----------
+SoftwareSerial espSerial(12, 13); // TX -> 12, RX -> 13
+
+// ---------- PZEM ----------
+// Use pins 7 (RX) and 8 (TX)
+SoftwareSerial pzemSerial(7, 8);
+PZEM004Tv30 pzem(pzemSerial);
+
+// ---------- Ultrasonic function ----------
+long getDistance(int trig, int echo) {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  long duration = pulseIn(echo, HIGH, 30000); // 30ms timeout
+  if (duration == 0) return -1; // no reading
+  return duration * 0.034 / 2;
+}
+
+void setup() {
+  Serial.begin(9600);         // Serial Monitor
+  espSerial.begin(9600);      // ESP32 communication
+  pzemSerial.begin(9600);     // PZEM communication
+  dht.begin();
+
+  pinMode(TRIG1, OUTPUT);
+  pinMode(ECHO1, INPUT);
+  pinMode(TRIG2, OUTPUT);
+  pinMode(ECHO2, INPUT);
+
+  pinMode(BUZZER, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+
+  Serial.println("UNO Sensors + PZEM Initialized");
+}
+
+void loop() {
+  // ----- Read Sensors -----
+  float temp = dht.readTemperature();
+  float hum  = dht.readHumidity();
+  int smoke  = analogRead(MQ2_PIN);
+
+  long d1 = getDistance(TRIG1, ECHO1);
+  long d2 = getDistance(TRIG2, ECHO2);
+
+  // ----- PZEM Readings -----
+  float voltage = pzem.voltage();
+  delay(100);
+  float current = pzem.current();
+  delay(100);
+  float power   = pzem.power();
+  delay(100);
+  float energy  = pzem.energy();
+  delay(100);
+
+  // Check if PZEM readings are valid
+  if (isnan(voltage)) voltage = 0;
+  if (isnan(current)) current = 0;
+  if (isnan(power))   power = 0;
+  if (isnan(energy))  energy = 0;
+
+  // ----- Control LEDs/Buzzer -----
+  if (smoke > 400) {
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(GREEN_LED, LOW);
+    digitalWrite(BUZZER, HIGH);
+  } else {
+    digitalWrite(RED_LED, LOW);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(BUZZER, LOW);
+  }
+
+  // ----- Send to Serial Monitor -----
+  Serial.print("Temp: "); Serial.print(temp); Serial.print(" C, ");
+  Serial.print("Hum: "); Serial.print(hum); Serial.print(" %, ");
+  Serial.print("Smoke: "); Serial.print(smoke); Serial.print(", ");
+  Serial.print("D1: "); Serial.print(d1); Serial.print(" cm, ");
+  Serial.print("D2: "); Serial.print(d2); Serial.print(" cm, ");
+  Serial.print("V: "); Serial.print(voltage); Serial.print(" V, ");
+  Serial.print("I: "); Serial.print(current); Serial.print(" A, ");
+  Serial.print("P: "); Serial.print(power); Serial.print(" W, ");
+  Serial.print("E: "); Serial.println(energy);
+
+  // ----- Send to ESP32 -----
+  espSerial.print("TEMP:"); espSerial.println(temp);
+  espSerial.print("HUM:");  espSerial.println(hum);
+  espSerial.print("SMOKE:");espSerial.println(smoke);
+  espSerial.print("D1:");   espSerial.println(d1);
+  espSerial.print("D2:");   espSerial.println(d2);
+  espSerial.print("VOLT:"); espSerial.println(voltage);
+  espSerial.print("CURR:"); espSerial.println(current);
+  espSerial.print("POWR:"); espSerial.println(power);
+  espSerial.print("ENER:"); espSerial.println(energy);
+  espSerial.println("END");
+
+  delay(2000);
+}
